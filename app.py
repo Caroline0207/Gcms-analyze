@@ -227,22 +227,16 @@ out["AVG AREA"] = out[area_pct_cols].mean(axis=1, skipna=True)
 out = out.sort_values("RT", ascending=True, na_position="last").reset_index(drop=True)
 out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 
-# ------------------ Top 10 by AVG AREA ------------------
-st.subheader("Top 10 Compounds (by AVG AREA)")
-top10 = out.sort_values("AVG AREA", ascending=False, na_position="last").head(10).copy()
-
-top_cols = ["RT", "Name", "Formula", "Species", "AVG AREA"]
-for t in trial_dfs.keys():
-    top_cols += [f"{t} Area %", f"{t} Score"]
-st.dataframe(top10[top_cols], use_container_width=True, hide_index=True)
-
 # ------------------ Validation ------------------
-st.subheader("Validation (each trial Area % sum must be 100; AVG AREA sum must be 100)")
-cols = st.columns(n_trials + 1)
-for idx, t in enumerate(trial_dfs.keys()):
-    s = pd.to_numeric(out[f"{t} Area %"], errors="coerce").sum(skipna=True)
-    cols[idx].metric(f"{t} Area % sum", f"{s:.2f}%")
-cols[-1].metric("AVG AREA sum", f"{pd.to_numeric(out['AVG AREA'], errors='coerce').sum(skipna=True):.2f}%")
+with st.expander("Validation", expanded=False):
+    cols = st.columns(n_trials + 1)
+
+    for idx, t in enumerate(trial_dfs.keys()):
+        s = pd.to_numeric(out[f"{t} Area %"], errors="coerce").sum(skipna=True)
+        cols[idx].caption(f"{t}: {s:.2f}%")
+
+    avg_sum = pd.to_numeric(out["AVG AREA"], errors="coerce").sum(skipna=True)
+    cols[-1].caption(f"AVG AREA: {avg_sum:.2f}%")
 
 # ------------------ Final Output Table (exact layout) ------------------
 st.subheader("Final Output Table (common compounds only, RT ascending)")
@@ -255,3 +249,15 @@ st.dataframe(out[final_cols], use_container_width=True, hide_index=True)
 
 csv = out[final_cols].to_csv(index=False).encode("utf-8")
 st.download_button("Download CSV", csv, "gcms_multi_trial_final_output.csv", mime="text/csv")
+
+# ------------------ Top 10 (by AVG AREA) ------------------
+st.subheader("Top 10 Compounds (by AVG AREA)")
+
+top10 = (
+    out.sort_values("AVG AREA", ascending=False, na_position="last")
+      .head(10)[["Name", "Formula", "AVG AREA"]]
+      .copy()
+)
+
+st.dataframe(top10, use_container_width=True, hide_index=True)
+
