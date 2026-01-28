@@ -5,36 +5,91 @@ import io
 import re
 
 # =====================================================
-# Page config + style
-# =====================================================
-st.set_page_config(page_title="GC-MS Multi-Trial Analysis", layout="wide")
-
 st.markdown("""
 <style>
-.block-container { max-width: 1200px; padding-top: 1.4rem; padding-bottom: 2rem; }
-h1, h2, h3 { letter-spacing: -0.2px; }
-h1 { margin-bottom: 0.3rem; }
-.card {
-  padding: 1.1rem;
-  border-radius: 16px;
-  border: 1px solid rgba(49,51,63,0.12);
-  background: rgba(255,255,255,0.85);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
-  margin-bottom: 1rem;
+/* ---------- Layout ---------- */
+.block-container {
+  max-width: 1180px;
+  padding-top: 1.2rem;
+  padding-bottom: 2.2rem;
+  background: #fafbfc;
 }
-.smallcap { font-size: 0.9rem; opacity: 0.75; margin-top: -0.3rem; }
+
+/* ---------- Typography ---------- */
+h1, h2, h3 {
+  letter-spacing: -0.3px;
+}
+h1 {
+  font-weight: 750;
+  margin-bottom: 0.2rem;
+}
+h2 {
+  margin-top: 1.2rem;
+}
+
+/* ---------- Card ---------- */
+.card {
+  background: white;
+  border-radius: 18px;
+  padding: 1.2rem 1.2rem 1.3rem 1.2rem;
+  border: 1px solid rgba(49,51,63,0.08);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.04);
+  margin-bottom: 1.2rem;
+}
+
+/* ---------- Soft badge ---------- */
 .badge {
-  display:inline-block; padding:0.22rem 0.55rem; border-radius:999px;
-  border:1px solid rgba(49,51,63,0.2); font-size:0.8rem; margin-left:0.4rem;
+  display: inline-block;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #e6f3ff, #f2ecff);
+  color: #4a4a68;
+  border: 1px solid rgba(120,120,180,0.25);
+  margin-left: 0.45rem;
+}
+
+/* ---------- Section emoji header ---------- */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* ---------- Subtle caption ---------- */
+.smallcap {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-top: -0.25rem;
+}
+
+/* ---------- Dataframe polish ---------- */
+div[data-testid="stDataFrame"] {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ---------- Expander ---------- */
+details > summary {
+  font-weight: 600;
 }
 </style>
 """, unsafe_allow_html=True)
-
 st.markdown(
-    "<h1>GC-MS Multi-Trial Analysis 🧪 <span class='badge'>v1.0</span></h1>"
-    "<div class='smallcap'>Paste cleaned GC-MS tables → inspect overlaps → export final summary.</div>",
+    """
+    <div class="section-title">
+      <h1>GC-MS Multi-Trial Analysis</h1>
+      <span class="badge">🧪 lab tool</span>
+      <span class="badge">🫧 clean data</span>
+    </div>
+    <div class="smallcap">
+      Paste cleaned GC-MS tables, inspect overlaps, and export a publication-ready summary.
+    </div>
+    """,
     unsafe_allow_html=True
 )
+
 
 # =====================================================
 # Helper functions
@@ -116,7 +171,8 @@ if len(trial_dfs) != n_trials:
 # RT Overview (all trials combined)
 # =====================================================
 st.markdown("<div class='card'>", unsafe_allow_html=True)
-st.subheader("RT Overview (All trials combined)")
+st.subheader("🧭 RT Overview")
+st.caption("All trials combined, sorted by retention time.")
 
 rt_all = []
 for t, df in trial_dfs.items():
@@ -137,7 +193,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Repeated Compounds (≥2 trials)
 # =====================================================
 st.markdown("<div class='card'>", unsafe_allow_html=True)
-st.subheader("Repeated Compounds")
+st.subheader("🔁 Repeated Compounds")
 st.caption("Compounds appearing in two or more trials.")
 
 key_trials = {}
@@ -202,18 +258,20 @@ for t in trial_dfs:
     final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
 st.markdown("<div class='card'>", unsafe_allow_html=True)
-st.subheader("Final Output Table")
-st.dataframe(out[final_cols], use_container_width=True, height=420)
+st.subheader("📊 Final Output Table")
+st.caption("Compounds common to all trials.")
 st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
 st.markdown("<div class='card'>", unsafe_allow_html=True)
-st.subheader("Top 10 Compounds (by AVG AREA)")
-top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name", "Formula", "AVG AREA"]]
-st.dataframe(top10, use_container_width=True, hide_index=True)
+st.subheader("✨ Top 10 Compounds")
+st.caption("Top contributors based on average area percentage.")
+top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name","Formula","AVG AREA"]]
+st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 # =====================================================
 # Validation (quiet)
