@@ -7,6 +7,31 @@ import re
 # =====================================================
 st.markdown("""
 <style>
+/* ---------- REMOVE STREAMLIT DIVIDER / EMPTY BARS ---------- */
+
+/* divider (st.divider / hr) */
+hr {
+  display: none !important;
+}
+
+/* empty blocks / separators that look like long rounded bars */
+div[data-testid="stVerticalBlock"] > div:has(> hr),
+div[data-testid="stVerticalBlock"] > div:empty {
+  display: none !important;
+}
+
+/* sometimes generated spacer containers */
+div[data-testid="stSpacer"] {
+  display: none !important;
+}
+
+/* remove extra margin that creates fake bars */
+.block-container > div {
+  border: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 /* ---------- Layout ---------- */
 .block-container {
   max-width: 1180px;
