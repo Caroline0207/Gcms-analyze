@@ -3,34 +3,19 @@ import pandas as pd
 import numpy as np
 import io
 import re
-
-# =====================================================
 st.markdown("""
 <style>
 /* ---------- REMOVE STREAMLIT DIVIDER / EMPTY BARS ---------- */
+hr { display: none !important; }
 
-/* divider (st.divider / hr) */
-hr {
-  display: none !important;
-}
-
-/* empty blocks / separators that look like long rounded bars */
 div[data-testid="stVerticalBlock"] > div:has(> hr),
 div[data-testid="stVerticalBlock"] > div:empty {
   display: none !important;
 }
 
-/* sometimes generated spacer containers */
 div[data-testid="stSpacer"] {
   display: none !important;
 }
-
-/* remove extra margin that creates fake bars */
-.block-container > div {
-  border: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 /* ---------- Layout ---------- */
 .block-container {
@@ -41,16 +26,9 @@ div[data-testid="stSpacer"] {
 }
 
 /* ---------- Typography ---------- */
-h1, h2, h3 {
-  letter-spacing: -0.3px;
-}
-h1 {
-  font-weight: 750;
-  margin-bottom: 0.2rem;
-}
-h2 {
-  margin-top: 1.2rem;
-}
+h1, h2, h3 { letter-spacing: -0.3px; }
+h1 { font-weight: 750; margin-bottom: 0.2rem; }
+h2 { margin-top: 1.2rem; }
 
 /* ---------- Card ---------- */
 .card {
@@ -101,6 +79,7 @@ details > summary {
 }
 </style>
 """, unsafe_allow_html=True)
+
 st.markdown(
     """
     <div class="section-title">
