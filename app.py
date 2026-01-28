@@ -260,7 +260,13 @@ for t in trial_dfs:
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("📊 Final Output Table")
 st.caption("Compounds common to all trials.")
-st.markdown("</div>", unsafe_allow_html=True)
+
+st.dataframe(
+    out[final_cols],
+    use_container_width=True,
+    height=420
+)
+
 
 # =====================================================
 # Top 10 (after Final Output)
