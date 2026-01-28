@@ -32,7 +32,6 @@ def extract_aliases(name, species):
         if not x or x.lower() == "nan":
             continue
         x = x.lower()
-        # split "or" as separator
         x = re.sub(r"\s+or\s+", "|", x)
         x = re.sub(r"^\s*or\s+", "", x)
         parts = [p.strip() for p in x.split("|") if p.strip()]
@@ -56,13 +55,16 @@ def canonical_key(name, species) -> str:
     return trivial[0] if trivial else min(aliases, key=len)
 
 def to_num(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series.astype(str).str.replace(",", "", regex=False).str.strip(), errors="coerce")
+    # robust numeric conversion: commas removed, errors -> NaN
+    return pd.to_numeric(
+        series.astype(str).str.replace(",", "", regex=False).str.strip(),
+        errors="coerce",
+    )
 
 def parse_trial(text: str) -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(text.strip()), sep="\t", dtype=str, engine="python")
     df.columns = [c.strip() for c in df.columns]
 
-    # 최소 요구 컬럼: RT, Area, Name (Species optional)
     required = ["RT", "Area", "Name"]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -83,10 +85,9 @@ def parse_trial(text: str) -> pd.DataFrame:
     df["Area"] = to_num(df["Area"])
     df["Score"] = to_num(df["Score"])
 
-    # canonical key
     df["key"] = df.apply(lambda r: canonical_key(r["Name"], r["Species"]), axis=1)
 
-    # drop unusable rows
+    # keep only usable rows
     df = df[df["key"].astype(str).str.strip() != ""].copy()
     df = df[pd.notna(df["Area"]) & (df["Area"] > 0)].copy()
 
@@ -111,57 +112,65 @@ if len(trial_dfs) != n_trials:
     st.info("Please paste valid data for ALL trials.")
     st.stop()
 
-# ------------------ analysis ------------------
+# ------------------ compute common keys ------------------
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
-
 if not common_keys:
     st.warning("No common compounds found across all trials (after alias matching).")
     st.stop()
 
-# Build a per-trial lookup (key -> row)
-trial_maps = {t: df.set_index("key") for t, df in trial_dfs.items()}
+# ------------------ input overview (RT sorted) ------------------
+st.subheader("Input Overview (RT-sorted by trial)")
+show_overview = st.toggle(
+    "Show RT-sorted input tables for each trial",
+    value=False,
+    help="Displays each pasted trial table sorted by RT for quick sanity checks."
+)
+if show_overview:
+    for t, df in trial_dfs.items():
+        st.markdown(f"### {t}")
+        cols = [c for c in ["RT", "Name", "Formula", "Species", "Area", "Score"] if c in df.columns]
+        df_view = df[cols].sort_values("RT", ascending=True, na_position="last").reset_index(drop=True)
+        st.dataframe(df_view, use_container_width=True, hide_index=True)
 
-# For display fields (Name/Formula/Species/RT): use T1 as anchor
-anchor = trial_maps["T1"].loc[list(common_keys)].copy()
+st.divider()
+
+# ------------------ build final output base ------------------
+trial_maps = {t: df.set_index("key") for t, df in trial_dfs.items()}
 
 rows = []
 for key in sorted(common_keys):
     base = trial_maps["T1"].loc[key]
-
     row = {
         "RT": base["RT"],
         "Name": base["Name"],
         "Formula": base.get("Formula", ""),
         "Species": base.get("Species", ""),
     }
-
-    # compute trial-wise Area% AFTER restricting to common_keys
-    # first collect areas for this key across trials and also totals per trial
     for t in trial_maps.keys():
-        row[f"{t} RT"] = trial_maps[t].loc[key]["RT"]
-        row[f"{t} Area"] = trial_maps[t].loc[key]["Area"]
-        row[f"{t} Score"] = trial_maps[t].loc[key].get("Score", np.nan)
-
+        r = trial_maps[t].loc[key]
+        row[f"{t} RT"] = r["RT"]
+        row[f"{t} Area"] = r["Area"]
+        row[f"{t} Score"] = r.get("Score", np.nan)
     rows.append(row)
 
 out = pd.DataFrame(rows)
 
-# Now compute trial totals on common set and Area%
+# ------------------ recompute Area % within common set (ROBUST) ------------------
 for t in trial_maps.keys():
-    # sum of Area for common compounds in this trial
-    areas_common = out[f"{t} Area"].astype(float)
+    # IMPORTANT: do NOT use astype(float); coerce safely
+    areas_common = pd.to_numeric(out[f"{t} Area"], errors="coerce")
     total_area = areas_common.sum(skipna=True)
 
-    if total_area <= 0 or np.isnan(total_area):
+    if pd.isna(total_area) or total_area <= 0:
         out[f"{t} Area %"] = np.nan
     else:
         out[f"{t} Area %"] = (areas_common / total_area) * 100
 
-# AVG AREA = mean of trial Area% columns
+# AVG AREA = mean of recomputed Area% across trials
 area_pct_cols = [f"{t} Area %" for t in trial_maps.keys()]
 out["AVG AREA"] = out[area_pct_cols].mean(axis=1, skipna=True)
 
-# Sort + cumulative like your example
+# Sort ascending like your example + cumulative
 out = out.sort_values("AVG AREA", ascending=True, na_position="last").reset_index(drop=True)
 out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 
@@ -169,40 +178,12 @@ out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 st.subheader("Validation (must be ~100%)")
 cols = st.columns(n_trials + 1)
 for idx, t in enumerate(trial_maps.keys()):
-    s = out[f"{t} Area %"].sum(skipna=True)
+    s = pd.to_numeric(out[f"{t} Area %"], errors="coerce").sum(skipna=True)
     cols[idx].metric(f"{t} Area % sum", f"{s:.2f}%")
 
-avg_sum = out["AVG AREA"].sum(skipna=True)
+avg_sum = pd.to_numeric(out["AVG AREA"], errors="coerce").sum(skipna=True)
 cols[-1].metric("AVG AREA sum", f"{avg_sum:.2f}%")
 
-# ------------------ input overview ------------------
-st.subheader("Input Overview (RT-sorted by trial)")
-
-show_overview = st.toggle(
-    "Show RT-sorted input tables for each trial",
-    value=False,
-    help="Displays each pasted trial table sorted by RT for quick sanity checks."
-)
-
-if show_overview:
-    for t, df in trial_dfs.items():
-        st.markdown(f"### {t}")
-
-        # Columns to show (존재하는 것만)
-        cols = ["RT", "Name", "Formula", "Species", "Area", "Score"]
-        cols = [c for c in cols if c in df.columns]
-
-        df_view = (
-            df[cols]
-            .sort_values("RT", ascending=True, na_position="last")
-            .reset_index(drop=True)
-        )
-
-        st.dataframe(
-            df_view,
-            use_container_width=True,
-            hide_index=True
-        )
 # ------------------ output ------------------
 st.subheader("Final Output Table")
 st.dataframe(out, use_container_width=True)
