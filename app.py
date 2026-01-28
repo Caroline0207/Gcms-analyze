@@ -264,9 +264,18 @@ st.caption("Compounds common to all trials.")
 st.dataframe(
     out[final_cols],
     use_container_width=True,
-    height=420
 )
 
+# ---------- Copy Final Output Table ----------
+st.markdown("##### 📋 Copy Final Output Table")
+
+tsv_text = out[final_cols].to_csv(sep="\t", index=False)
+
+st.text_area(
+    "Copy & paste (TSV, header included):",
+    tsv_text,
+    height=180
+)
 
 # =====================================================
 # Top 10 (after Final Output)
