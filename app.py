@@ -4,19 +4,17 @@ import numpy as np
 import io
 import re
 
+# ------------------ Page ------------------
 st.set_page_config(layout="wide", page_title="GC-MS Multi-Trial Analysis")
 st.title("GC-MS Multi-Trial Analysis 🧪")
 st.caption(
     "Paste trial tables (TSV copied from Excel). The app matches compounds across trials using "
-    "alias-aware Name/Species logic, keeps only compounds present in ALL trials, recalculates Area % "
-    "within the common-compound set (so each trial sums to 100), and outputs AVG AREA and CUMULATIVE %."
+    "alias-aware Name/Species logic, provides RT overview, overlap summaries (in 2/3/... trials), "
+    "and a final common-compounds table with recomputed Area % and AVG AREA."
 )
 
-# =========================
-# Helpers: matching / parsing
-# =========================
+# ------------------ Matching helpers ------------------
 def normalize_text(s: str) -> str:
-    """Normalization for matching keys (not for display)."""
     if s is None or (isinstance(s, float) and np.isnan(s)):
         return ""
     s = str(s).lower().strip()
@@ -27,7 +25,6 @@ def normalize_text(s: str) -> str:
     return s
 
 def extract_aliases(name, species):
-    """Extract aliases from Name + Species, split 'or' phrases, handle NaN safely."""
     aliases = []
     for x in [name, species]:
         if x is None or pd.isna(x):
@@ -36,17 +33,12 @@ def extract_aliases(name, species):
         if not x or x.lower() == "nan":
             continue
         x = x.lower()
-
-        # split "or" only as a separator between names
         x = re.sub(r"\s+or\s+", "|", x)
         x = re.sub(r"^\s*or\s+", "", x)
-
-        parts = [p.strip() for p in x.split("|") if p.strip()]
-        aliases.extend(parts)
+        aliases.extend([p.strip() for p in x.split("|") if p.strip()])
     return aliases
 
 def is_trivial_name(s: str) -> bool:
-    """Heuristic for choosing short/common names (e.g., o-cymene) over long descriptors."""
     if not s:
         return False
     bad_tokens = {"benzene", "methyl", "ethyl", "propyl", "butyl", "hexenyl", "dimethyl", "trimethyl"}
@@ -62,6 +54,7 @@ def canonical_key(name, species) -> str:
     trivial = [a for a in aliases if is_trivial_name(a)]
     return trivial[0] if trivial else min(aliases, key=len)
 
+# ------------------ Parsing helpers ------------------
 def to_num(series: pd.Series) -> pd.Series:
     return pd.to_numeric(
         series.astype(str).str.replace(",", "", regex=False).str.strip(),
@@ -69,7 +62,6 @@ def to_num(series: pd.Series) -> pd.Series:
     )
 
 def parse_trial(text: str) -> pd.DataFrame:
-    """Parse TSV (Excel paste). Requires RT, Area, Name. Species/Formula/Score optional."""
     df = pd.read_csv(io.StringIO(text.strip()), sep="\t", dtype=str, engine="python")
     df.columns = [c.strip() for c in df.columns]
 
@@ -95,19 +87,14 @@ def parse_trial(text: str) -> pd.DataFrame:
 
     df["key"] = df.apply(lambda r: canonical_key(r["Name"], r["Species"]), axis=1)
 
-    # usable rows only
     df = df[df["key"].astype(str).str.strip() != ""].copy()
     df = df[pd.notna(df["Area"]) & (df["Area"] > 0)].copy()
-
     return df
 
 def first_row_for_key(df: pd.DataFrame, key: str) -> pd.Series:
-    """Return the first matching row for a key (no collapsing)."""
     return df.loc[df["key"] == key].iloc[0]
 
-# =========================
-# UI: trial inputs
-# =========================
+# ------------------ UI: Trials ------------------
 n_trials = st.selectbox("Number of trials", [2, 3, 4, 5, 6], index=2)
 
 trial_dfs = {}
@@ -116,15 +103,14 @@ dup_warnings = {}
 for i in range(n_trials):
     t = f"T{i+1}"
     st.subheader(t)
-    txt = st.text_area(f"Paste {t} table (TSV)", height=180, key=f"trial_{t}")
+    txt = st.text_area(f"Paste {t} table (TSV)", height=170, key=f"trial_{t}")
     if txt.strip():
         try:
             df = parse_trial(txt)
             trial_dfs[t] = df
 
-            # detect duplicates (same key appears multiple times)
-            dup_counts = df["key"].value_counts()
-            dups = dup_counts[dup_counts > 1]
+            dups = df["key"].value_counts()
+            dups = dups[dups > 1]
             if len(dups) > 0:
                 dup_warnings[t] = dups
 
@@ -136,66 +122,79 @@ if len(trial_dfs) != n_trials:
     st.info("Please paste valid data for ALL trials.")
     st.stop()
 
-# duplicates warning (no collapse; just warn)
 if dup_warnings:
-    with st.expander("⚠️ Duplicate key warnings (no collapsing applied)"):
-        st.write(
-            "Some trials contain multiple rows mapped to the same compound key. "
-            "Per your request, the app does NOT collapse them; it uses the FIRST occurrence only. "
-            "If this is not desired, fix upstream cleaning or adjust matching rules."
-        )
-        for t, dups in dup_warnings.items():
-            st.write(f"**{t}** duplicates (key → count):")
-            st.dataframe(dups.rename("count").reset_index().rename(columns={"index": "key"}), hide_index=True)
-
-# =========================
-# Compute common compounds (intersection)
-# =========================
-common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
-if not common_keys:
-    st.warning("No common compounds found across all trials (after alias matching).")
-    st.stop()
-
-# =========================
-# RT Overview (All trials combined, RT ascending)
-# =========================
-st.subheader("RT Overview (All trials combined, RT ascending)")
-show_rt_overview = st.toggle(
-    "Show combined RT-sorted table (all trials)",
-    value=False,
-    help="All pasted rows from all trials combined and sorted by RT."
-)
-
-if show_rt_overview:
-    dfs = []
-    for t, df in trial_dfs.items():
-        tmp = df.copy()
-        tmp["Trial"] = t
-        dfs.append(tmp)
-
-    rt_all = pd.concat(dfs, ignore_index=True)
-    cols = [c for c in ["Trial", "RT", "Name", "Formula", "Species", "Area", "Score", "key"] if c in rt_all.columns]
-    rt_all = rt_all[cols].sort_values("RT", ascending=True, na_position="last").reset_index(drop=True)
-    st.dataframe(rt_all, use_container_width=True, hide_index=True)
+    with st.expander("⚠️ Duplicate key warnings (no collapsing; first match is used)"):
+        for t, s in dup_warnings.items():
+            st.write(f"**{t}** duplicates (key → count)")
+            st.dataframe(s.rename("count").reset_index().rename(columns={"index": "key"}), hide_index=True)
 
 st.divider()
 
-# =========================
-# Build Final Output Table (common keys only)
-# =========================
-# For display name/formula/species, anchor to T1 first occurrence
-anchor_t = "T1"
+# ------------------ RT Overview (All trials combined) ------------------
+st.subheader("RT Overview (All trials combined, RT ascending)")
+
+all_rows = []
+for t, df in trial_dfs.items():
+    tmp = df.copy()
+    tmp["Trial"] = t
+    all_rows.append(tmp)
+
+rt_all = pd.concat(all_rows, ignore_index=True)
+rt_all = rt_all.sort_values("RT", ascending=True, na_position="last").reset_index(drop=True)
+
+overview_cols = ["Trial", "RT", "Name", "Formula", "Species", "Area", "Score", "key"]
+overview_cols = [c for c in overview_cols if c in rt_all.columns]
+
+st.dataframe(rt_all[overview_cols], use_container_width=True, hide_index=True)
+
+# ------------------ Overlap summary: in how many trials does each key appear? ------------------
+st.subheader("Overlap Summary (keys present in exactly k trials)")
+
+# key -> set(trials)
+key_trials = {}
+for t, df in trial_dfs.items():
+    for k in set(df["key"].tolist()):
+        key_trials.setdefault(k, set()).add(t)
+
+overlap_rows = []
+for k, ts in key_trials.items():
+    overlap_rows.append({"key": k, "n_trials": len(ts), "trials": ", ".join(sorted(ts))})
+overlap_df = pd.DataFrame(overlap_rows).sort_values(["n_trials", "key"], ascending=[False, True])
+
+# quick counts
+counts = overlap_df["n_trials"].value_counts().sort_index()
+st.write("**How many compounds overlap across trials** (by presence count):")
+st.dataframe(counts.rename("count").reset_index().rename(columns={"index": "n_trials"}), hide_index=True)
+
+# show 2-trial overlap, 3-trial overlap etc (only when possible)
+max_k = n_trials
+tabs = st.tabs([f"{k} trials" for k in range(2, max_k + 1)])
+for tab_idx, k in enumerate(range(2, max_k + 1)):
+    with tabs[tab_idx]:
+        sub = overlap_df[overlap_df["n_trials"] == k].copy()
+        st.caption(f"Compounds present in exactly **{k}** trials.")
+        if sub.empty:
+            st.info("None.")
+        else:
+            st.dataframe(sub, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ------------------ Final Output: common compounds only (intersection of all trials) ------------------
+common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
+if not common_keys:
+    st.warning("No common compounds found across all trials.")
+    st.stop()
 
 rows = []
 for key in sorted(common_keys):
-    # per trial: grab FIRST row for this key
     per_trial = {t: first_row_for_key(df, key) for t, df in trial_dfs.items()}
 
-    # Display RT (leftmost): mean RT across trials (robust + good for sorting)
-    rts = [per_trial[t]["RT"] for t in trial_dfs.keys()]
-    rt_display = pd.to_numeric(pd.Series(rts), errors="coerce").mean(skipna=True)
+    # Use mean RT across trials for stable RT sorting
+    rt_vals = pd.to_numeric(pd.Series([per_trial[t]["RT"] for t in trial_dfs.keys()]), errors="coerce")
+    rt_display = rt_vals.mean(skipna=True)
 
-    base = per_trial[anchor_t]
+    base = per_trial["T1"]
     row = {
         "RT": rt_display,
         "Name": base.get("Name", ""),
@@ -203,7 +202,6 @@ for key in sorted(common_keys):
         "Species": base.get("Species", ""),
     }
 
-    # fill per-trial RT/Area/Score
     for t in trial_dfs.keys():
         row[f"{t} RT"] = per_trial[t]["RT"]
         row[f"{t} Area"] = per_trial[t]["Area"]
@@ -213,51 +211,44 @@ for key in sorted(common_keys):
 
 out = pd.DataFrame(rows)
 
-# =========================
-# Recompute Area % within common set so each trial sums 100
-# =========================
+# recompute Area % within common set so each trial sums to 100
 for t in trial_dfs.keys():
     areas = pd.to_numeric(out[f"{t} Area"], errors="coerce")
-    total_area = areas.sum(skipna=True)
-    out[f"{t} Area %"] = (areas / total_area) * 100 if pd.notna(total_area) and total_area > 0 else np.nan
+    total = areas.sum(skipna=True)
+    out[f"{t} Area %"] = (areas / total) * 100 if pd.notna(total) and total > 0 else np.nan
 
-# AVG AREA = mean of trial Area% columns
 area_pct_cols = [f"{t} Area %" for t in trial_dfs.keys()]
 out["AVG AREA"] = out[area_pct_cols].mean(axis=1, skipna=True)
 
-# Sort Final Output by RT ascending (your request)
+# sort RT ascending + cumulative
 out = out.sort_values("RT", ascending=True, na_position="last").reset_index(drop=True)
-
-# CUMULATIVE % in RT order (based on AVG AREA)
 out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 
-# =========================
-# Format columns exactly like your desired table layout
-# =========================
+# ------------------ Top 10 by AVG AREA ------------------
+st.subheader("Top 10 Compounds (by AVG AREA)")
+top10 = out.sort_values("AVG AREA", ascending=False, na_position="last").head(10).copy()
+
+top_cols = ["RT", "Name", "Formula", "Species", "AVG AREA"]
+for t in trial_dfs.keys():
+    top_cols += [f"{t} Area %", f"{t} Score"]
+st.dataframe(top10[top_cols], use_container_width=True, hide_index=True)
+
+# ------------------ Validation ------------------
+st.subheader("Validation (each trial Area % sum must be 100; AVG AREA sum must be 100)")
+cols = st.columns(n_trials + 1)
+for idx, t in enumerate(trial_dfs.keys()):
+    s = pd.to_numeric(out[f"{t} Area %"], errors="coerce").sum(skipna=True)
+    cols[idx].metric(f"{t} Area % sum", f"{s:.2f}%")
+cols[-1].metric("AVG AREA sum", f"{pd.to_numeric(out['AVG AREA'], errors='coerce').sum(skipna=True):.2f}%")
+
+# ------------------ Final Output Table (exact layout) ------------------
+st.subheader("Final Output Table (common compounds only, RT ascending)")
+
 final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
 for t in trial_dfs.keys():
     final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
-out_final = out[final_cols].copy()
+st.dataframe(out[final_cols], use_container_width=True, hide_index=True)
 
-# =========================
-# Validation
-# =========================
-st.subheader("Validation (each trial Area % sum must be 100; AVG AREA sum must be 100)")
-cols = st.columns(n_trials + 1)
-
-for idx, t in enumerate(trial_dfs.keys()):
-    s = pd.to_numeric(out_final[f"{t} Area %"], errors="coerce").sum(skipna=True)
-    cols[idx].metric(f"{t} Area % sum", f"{s:.2f}%")
-
-avg_sum = pd.to_numeric(out_final["AVG AREA"], errors="coerce").sum(skipna=True)
-cols[-1].metric("AVG AREA sum", f"{avg_sum:.2f}%")
-
-# =========================
-# Final Output Table
-# =========================
-st.subheader("Final Output Table (common compounds only, RT ascending)")
-st.dataframe(out_final, use_container_width=True)
-
-csv = out_final.to_csv(index=False).encode("utf-8")
+csv = out[final_cols].to_csv(index=False).encode("utf-8")
 st.download_button("Download CSV", csv, "gcms_multi_trial_final_output.csv", mime="text/csv")
