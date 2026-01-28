@@ -30,14 +30,10 @@ h1, h2, h3 { letter-spacing: -0.3px; }
 h1 { font-weight: 750; margin-bottom: 0.2rem; }
 h2 { margin-top: 1.2rem; }
 
-/* ---------- Card ---------- */
-.card {
-  background: white;
-  border-radius: 18px;
-  padding: 1.2rem 1.2rem 1.3rem 1.2rem;
-  border: 1px solid rgba(49,51,63,0.08);
-  box-shadow: 0 8px 22px rgba(0,0,0,0.04);
-  margin-bottom: 1.2rem;
+/* ---------- Simple section divider ---------- */
+.section-divider {
+  border-top: 1px solid rgba(0,0,0,0.08);
+  margin: 1.4rem 0 1.2rem 0;
 }
 
 /* ---------- Soft badge ---------- */
@@ -154,7 +150,7 @@ def parse_trial(text):
 n_trials = st.selectbox("Number of trials", [2, 3, 4, 5], index=2)
 
 trial_dfs = {}
-st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 
 for i in range(n_trials):
     t = f"T{i+1}"
@@ -174,7 +170,7 @@ if len(trial_dfs) != n_trials:
 # =====================================================
 # RT Overview (all trials combined)
 # =====================================================
-st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("🧭 RT Overview")
 st.caption("All trials combined, sorted by retention time.")
 
@@ -196,7 +192,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # =====================================================
 # Repeated Compounds (≥2 trials)
 # =====================================================
-st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("🔁 Repeated Compounds")
 st.caption("Compounds appearing in two or more trials.")
 
@@ -261,7 +257,7 @@ final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
 for t in trial_dfs:
     final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
-st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("📊 Final Output Table")
 st.caption("Compounds common to all trials.")
 st.markdown("</div>", unsafe_allow_html=True)
@@ -269,7 +265,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
-st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("✨ Top 10 Compounds")
 st.caption("Top contributors based on average area percentage.")
 top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name","Formula","AVG AREA"]]
