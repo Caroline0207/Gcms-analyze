@@ -175,6 +175,34 @@ for idx, t in enumerate(trial_maps.keys()):
 avg_sum = out["AVG AREA"].sum(skipna=True)
 cols[-1].metric("AVG AREA sum", f"{avg_sum:.2f}%")
 
+# ------------------ input overview ------------------
+st.subheader("Input Overview (RT-sorted by trial)")
+
+show_overview = st.toggle(
+    "Show RT-sorted input tables for each trial",
+    value=False,
+    help="Displays each pasted trial table sorted by RT for quick sanity checks."
+)
+
+if show_overview:
+    for t, df in trial_dfs.items():
+        st.markdown(f"### {t}")
+
+        # Columns to show (존재하는 것만)
+        cols = ["RT", "Name", "Formula", "Species", "Area", "Score"]
+        cols = [c for c in cols if c in df.columns]
+
+        df_view = (
+            df[cols]
+            .sort_values("RT", ascending=True, na_position="last")
+            .reset_index(drop=True)
+        )
+
+        st.dataframe(
+            df_view,
+            use_container_width=True,
+            hide_index=True
+        )
 # ------------------ output ------------------
 st.subheader("Final Output Table")
 st.dataframe(out, use_container_width=True)
