@@ -151,17 +151,20 @@ st.dataframe(rt_all[overview_cols], use_container_width=True, hide_index=True)
 st.subheader("Repeated Compounds")
 st.caption("Compounds that appear in two or more trials.")
 
-rows = []
+# Build key -> set(trials) locally (so no NameError)
+key_trials = {}
+for t, df in trial_dfs.items():
+    for k in set(df["key"].tolist()):
+        key_trials.setdefault(k, set()).add(t)
 
+rows = []
 for key, ts in key_trials.items():
     if len(ts) < 2:
         continue
 
-    # 대표 정보: 가장 먼저 등장한 trial의 row 사용
+    # Representative info: use first trial where it appears (alphabetical T1, T2, ...)
     first_trial = sorted(ts)[0]
-    rep = trial_dfs[first_trial].loc[
-        trial_dfs[first_trial]["key"] == key
-    ].iloc[0]
+    rep = trial_dfs[first_trial].loc[trial_dfs[first_trial]["key"] == key].iloc[0]
 
     rows.append({
         "Name": rep.get("Name", ""),
@@ -172,12 +175,13 @@ for key, ts in key_trials.items():
 if not rows:
     st.info("No repeated compounds found.")
 else:
-    repeated_df = pd.DataFrame(rows).sort_values("Name")
-    st.dataframe(
-        repeated_df,
-        use_container_width=True,
-        hide_index=True
-    )
+    repeated_df = pd.DataFrame(rows)
+
+    # Optional: sort by how many trials (desc), then name (asc)
+    repeated_df["#Trials"] = repeated_df["Trials"].apply(lambda x: len([p for p in x.split(",") if p.strip()]))
+    repeated_df = repeated_df.sort_values(["#Trials", "Name"], ascending=[False, True]).drop(columns=["#Trials"])
+
+    st.dataframe(repeated_df, use_container_width=True, hide_index=True)
 
 # ------------------ Final Output: common compounds only (intersection of all trials) ------------------
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
