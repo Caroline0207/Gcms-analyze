@@ -147,38 +147,37 @@ overview_cols = [c for c in overview_cols if c in rt_all.columns]
 
 st.dataframe(rt_all[overview_cols], use_container_width=True, hide_index=True)
 
-# ------------------ Overlap summary: in how many trials does each key appear? ------------------
-st.subheader("Overlap Summary (keys present in exactly k trials)")
+# ------------------ Repeated Compounds ------------------
+st.subheader("Repeated Compounds")
+st.caption("Compounds that appear in two or more trials.")
 
-# key -> set(trials)
-key_trials = {}
-for t, df in trial_dfs.items():
-    for k in set(df["key"].tolist()):
-        key_trials.setdefault(k, set()).add(t)
+rows = []
 
-overlap_rows = []
-for k, ts in key_trials.items():
-    overlap_rows.append({"key": k, "n_trials": len(ts), "trials": ", ".join(sorted(ts))})
-overlap_df = pd.DataFrame(overlap_rows).sort_values(["n_trials", "key"], ascending=[False, True])
+for key, ts in key_trials.items():
+    if len(ts) < 2:
+        continue
 
-# quick counts
-counts = overlap_df["n_trials"].value_counts().sort_index()
-st.write("**How many compounds overlap across trials** (by presence count):")
-st.dataframe(counts.rename("count").reset_index().rename(columns={"index": "n_trials"}), hide_index=True)
+    # 대표 정보: 가장 먼저 등장한 trial의 row 사용
+    first_trial = sorted(ts)[0]
+    rep = trial_dfs[first_trial].loc[
+        trial_dfs[first_trial]["key"] == key
+    ].iloc[0]
 
-# show 2-trial overlap, 3-trial overlap etc (only when possible)
-max_k = n_trials
-tabs = st.tabs([f"{k} trials" for k in range(2, max_k + 1)])
-for tab_idx, k in enumerate(range(2, max_k + 1)):
-    with tabs[tab_idx]:
-        sub = overlap_df[overlap_df["n_trials"] == k].copy()
-        st.caption(f"Compounds present in exactly **{k}** trials.")
-        if sub.empty:
-            st.info("None.")
-        else:
-            st.dataframe(sub, use_container_width=True, hide_index=True)
+    rows.append({
+        "Name": rep.get("Name", ""),
+        "Formula": rep.get("Formula", ""),
+        "Trials": ", ".join(sorted(ts)),
+    })
 
-st.divider()
+if not rows:
+    st.info("No repeated compounds found.")
+else:
+    repeated_df = pd.DataFrame(rows).sort_values("Name")
+    st.dataframe(
+        repeated_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
 # ------------------ Final Output: common compounds only (intersection of all trials) ------------------
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
