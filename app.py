@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 import io
 import re
+
+# =====================================================
+# Style
+# =====================================================
 st.markdown("""
 <style>
 /* ---------- REMOVE STREAMLIT DIVIDER / EMPTY BARS ---------- */
@@ -89,7 +93,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 
 # =====================================================
 # Helper functions
@@ -220,87 +223,136 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
-# Final Output Table (common to ALL trials)
+# Final Output Table (ALL trials common; fallback to ≥3 trials)
 # =====================================================
-common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+st.subheader("📊 Final Output Table")
+st.caption("If no compounds are common to ALL trials, fall back to compounds appearing in ≥3 trials.")
+
+# --- Build key->trials map ---
+key_trials = {}
+for t, df in trial_dfs.items():
+    for k in df["key"].dropna().unique():
+        key_trials.setdefault(k, set()).add(t)
+
+# --- Priority: ALL trials common, else fallback to >=3 (or >=2 if only 2 trials) ---
+all_common = {k for k, ts in key_trials.items() if len(ts) == n_trials}
+if all_common:
+    selected_keys = all_common
+    mode_label = f"Mode: common to ALL trials (n={n_trials})"
+else:
+    min_rep = 3 if n_trials >= 3 else 2
+    selected_keys = {k for k, ts in key_trials.items() if len(ts) >= min_rep}
+    mode_label = f"Mode: fallback (appears in ≥ {min_rep} trials)"
+
+st.caption(f"{mode_label} • compounds: {len(selected_keys)}")
 
 rows = []
-for k in sorted(common_keys):
-    per = {t: trial_dfs[t].loc[trial_dfs[t]["key"] == k].iloc[0] for t in trial_dfs}
-    rt_mean = np.mean([per[t]["RT"] for t in per])
+for k in sorted(selected_keys):
+    # Only include trials where this key exists (important for fallback mode)
+    per = {}
+    for t in trial_dfs:
+        m = trial_dfs[t].loc[trial_dfs[t]["key"] == k]
+        if not m.empty:
+            per[t] = m.iloc[0]
 
-    base = per[list(per.keys())[0]]
+    if not per:
+        continue
+
+    rt_vals = [per[t]["RT"] for t in per if pd.notna(per[t]["RT"])]
+    rt_mean = float(np.mean(rt_vals)) if rt_vals else np.nan
+
+    base = per[next(iter(per))]
     row = {
         "RT": rt_mean,
-        "Name": base["Name"],
-        "Formula": base["Formula"],
-        "Species": base["Species"],
+        "Name": base.get("Name", ""),
+        "Formula": base.get("Formula", ""),
+        "Species": base.get("Species", ""),
+        "N Trials": len(per),
+        "Trials Present": ", ".join(sorted(per.keys())),
     }
 
-    for t in per:
-        row[f"{t} RT"] = per[t]["RT"]
-        row[f"{t} Area"] = per[t]["Area"]
-        row[f"{t} Score"] = per[t]["Score"]
+    # Fill per-trial columns (NaN if missing)
+    for t in trial_dfs:
+        if t in per:
+            row[f"{t} RT"] = per[t].get("RT", np.nan)
+            row[f"{t} Area"] = per[t].get("Area", np.nan)
+            row[f"{t} Score"] = per[t].get("Score", np.nan)
+        else:
+            row[f"{t} RT"] = np.nan
+            row[f"{t} Area"] = np.nan
+            row[f"{t} Score"] = np.nan
 
     rows.append(row)
 
-out = pd.DataFrame(rows).sort_values("RT").reset_index(drop=True)
+out = pd.DataFrame(rows)
 
-for t in trial_dfs:
-    out[f"{t} Area %"] = out[f"{t} Area"] / out[f"{t} Area"].sum() * 100
-
-area_pct_cols = [f"{t} Area %" for t in trial_dfs]
-out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
-out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
-
-final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
+# Prepare final columns list
+final_cols = ["RT", "Name", "Formula", "Species", "N Trials", "Trials Present", "AVG AREA", "CUMULATIVE %"]
 for t in trial_dfs:
     final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-st.subheader("📊 Final Output Table")
-st.caption("Compounds common to all trials.")
+if out.empty:
+    st.info("No compounds matched the selection rule.")
+else:
+    out = out.sort_values("RT").reset_index(drop=True)
 
-st.dataframe(
-    out[final_cols],
-    use_container_width=True,
-)
+    # --- Area % per trial (relative to that trial's total in out) ---
+    for t in trial_dfs:
+        area_col = f"{t} Area"
+        pct_col = f"{t} Area %"
+        denom = pd.to_numeric(out[area_col], errors="coerce").sum(skipna=True)
+        if denom and denom != 0:
+            out[pct_col] = pd.to_numeric(out[area_col], errors="coerce") / denom * 100
+        else:
+            out[pct_col] = np.nan
+
+    # --- AVG AREA + CUMULATIVE ---
+    area_pct_cols = [f"{t} Area %" for t in trial_dfs]
+    out["AVG AREA"] = out[area_pct_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
+    out["CUMULATIVE %"] = out["AVG AREA"].fillna(0).cumsum()
+
+    st.dataframe(out[final_cols], use_container_width=True)
 
 # ---------- Copy Final Output Table (toggle) ----------
 if "show_copy" not in st.session_state:
     st.session_state.show_copy = False
 
 col1, col2 = st.columns([1, 6])
-
 with col1:
     if st.button("📋 Copy"):
         st.session_state.show_copy = not st.session_state.show_copy
 
 if st.session_state.show_copy:
-    tsv_text = out[final_cols].to_csv(sep="\t", index=False)
-
-    st.text_area(
-        "Copy & paste (TSV, header included):",
-        tsv_text,
-        height=180
-    )
+    if out.empty:
+        st.info("Nothing to copy (final table is empty).")
+    else:
+        tsv_text = out[final_cols].to_csv(sep="\t", index=False)
+        st.text_area("Copy & paste (TSV, header included):", tsv_text, height=180)
 
 # =====================================================
-# Top 10 (after Final Output)
+# Top 10
 # =====================================================
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("✨ Top 10 Compounds")
 st.caption("Top contributors based on average area percentage.")
-top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name","Formula","AVG AREA"]]
-st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
-st.markdown("</div>", unsafe_allow_html=True)
 
+if out.empty or "AVG AREA" not in out.columns:
+    st.info("Top 10 not available (final table is empty).")
+else:
+    top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name", "Formula", "AVG AREA", "N Trials"]]
+    st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
+
+st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # Validation (quiet)
 # =====================================================
 with st.expander("Validation (Area % sums)", expanded=False):
-    cols = st.columns(n_trials + 1)
-    for i, t in enumerate(trial_dfs):
-        cols[i].caption(f"{t}: {out[f'{t} Area %'].sum():.2f}%")
-    cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum():.2f}%")
+    if out.empty:
+        st.info("No data to validate.")
+    else:
+        cols = st.columns(n_trials + 1)
+        for i, t in enumerate(trial_dfs):
+            cols[i].caption(f"{t}: {out[f'{t} Area %'].sum(skipna=True):.2f}%")
+        cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum(skipna=True):.2f}%")
