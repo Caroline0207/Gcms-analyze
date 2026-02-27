@@ -222,49 +222,62 @@ st.markdown("</div>", unsafe_allow_html=True)
 # =====================================================
 # Final Output Table (common to ALL trials)
 # =====================================================
-common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
 
-rows = []
-for k in sorted(common_keys):
-    per = {t: trial_dfs[t].loc[trial_dfs[t]["key"] == k].iloc[0] for t in trial_dfs}
-    rt_mean = np.mean([per[t]["RT"] for t in per])
+# 0) trial_dfs 자체가 비어있는 경우 방어
+if not trial_dfs:
+    st.warning("No trials loaded.")
+    out = pd.DataFrame(columns=["RT", "Name", "Formula", "Species"])
+else:
+    # 1) key 컬럼 NaN 제거 + 교집합 계산
+    key_sets = [set(df["key"].dropna()) for df in trial_dfs.values()]
+    common_keys = set.intersection(*key_sets) if key_sets else set()
 
-    base = per[list(per.keys())[0]]
-    row = {
-        "RT": rt_mean,
-        "Name": base["Name"],
-        "Formula": base["Formula"],
-        "Species": base["Species"],
-    }
+    rows = []
 
-    for t in per:
-        row[f"{t} RT"] = per[t]["RT"]
-        row[f"{t} Area"] = per[t]["Area"]
-        row[f"{t} Score"] = per[t]["Score"]
+    # 2) 공통 key가 없으면: 빈 rows라도 스키마를 강제로 만들어서 RT KeyError 방지
+    if not common_keys:
+        st.info("No common compounds across all trials.")
+        out = pd.DataFrame(columns=["RT", "Name", "Formula", "Species"])
+    else:
+        for k in sorted(common_keys):
+            # 3) 각 trial에서 해당 key의 첫 row 뽑기
+            per = {}
+            missing = False
+            for t, df in trial_dfs.items():
+                m = df.loc[df["key"] == k]
+                if m.empty:
+                    missing = True
+                    break
+                per[t] = m.iloc[0]
 
-    rows.append(row)
+            if missing:
+                continue
 
-out = pd.DataFrame(rows).sort_values("RT").reset_index(drop=True)
+            # 4) RT 평균 (NaN 방어)
+            rt_list = [per[t]["RT"] for t in per]
+            rt_list = [x for x in rt_list if pd.notna(x)]
+            rt_mean = float(np.mean(rt_list)) if rt_list else np.nan
 
-for t in trial_dfs:
-    out[f"{t} Area %"] = out[f"{t} Area"] / out[f"{t} Area"].sum() * 100
+            base = per[next(iter(per))]
+            row = {
+                "RT": rt_mean,
+                "Name": base.get("Name", ""),
+                "Formula": base.get("Formula", ""),
+                "Species": base.get("Species", ""),
+            }
 
-area_pct_cols = [f"{t} Area %" for t in trial_dfs]
-out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
-out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
+            for t in per:
+                row[f"{t} RT"] = per[t].get("RT", np.nan)
+                row[f"{t} Area"] = per[t].get("Area", np.nan)
+                row[f"{t} Score"] = per[t].get("Score", np.nan)
 
-final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
-for t in trial_dfs:
-    final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
+            rows.append(row)
 
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-st.subheader("📊 Final Output Table")
-st.caption("Compounds common to all trials.")
+        out = pd.DataFrame(rows)
 
-st.dataframe(
-    out[final_cols],
-    use_container_width=True,
-)
+        # 5) 정렬은 RT 컬럼이 있을 때만
+        if "RT" in out.columns and not out.empty:
+            out = out.sort_values("RT", kind="mergesort").reset_index(drop=True)
 
 # ---------- Copy Final Output Table (toggle) ----------
 if "show_copy" not in st.session_state:
