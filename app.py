@@ -223,80 +223,102 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Final Output Table (common to ALL trials)
 # =====================================================
 
-# 0) trial_dfs 자체가 비어있는 경우 방어
-if not trial_dfs:
-    st.warning("No trials loaded.")
-    out = pd.DataFrame(columns=["RT", "Name", "Formula", "Species"])
+# common_keys 계산 (NaN 방어)
+key_sets = [set(df["key"].dropna()) for df in trial_dfs.values()]
+common_keys = set.intersection(*key_sets) if key_sets else set()
+
+rows = []
+for k in sorted(common_keys):
+    per = {}
+    ok = True
+    for t, df in trial_dfs.items():
+        m = df.loc[df["key"] == k]
+        if m.empty:
+            ok = False
+            break
+        per[t] = m.iloc[0]
+    if not ok:
+        continue
+
+    rt_vals = [per[t]["RT"] for t in per if pd.notna(per[t]["RT"])]
+    rt_mean = float(np.mean(rt_vals)) if rt_vals else np.nan
+
+    base = per[next(iter(per))]
+    row = {
+        "RT": rt_mean,
+        "Name": base.get("Name", ""),
+        "Formula": base.get("Formula", ""),
+        "Species": base.get("Species", ""),
+    }
+
+    for t in per:
+        row[f"{t} RT"] = per[t].get("RT", np.nan)
+        row[f"{t} Area"] = per[t].get("Area", np.nan)
+        row[f"{t} Score"] = per[t].get("Score", np.nan)
+
+    rows.append(row)
+
+# out 만들기 (빈 경우에도 스키마 유지)
+base_cols = ["RT", "Name", "Formula", "Species"]
+trial_cols = []
+for t in trial_dfs:
+    trial_cols += [f"{t} RT", f"{t} Area", f"{t} Score"]
+out = pd.DataFrame(rows)
+if out.empty:
+    out = pd.DataFrame(columns=base_cols + trial_cols)
 else:
-    # 1) key 컬럼 NaN 제거 + 교집합 계산
-    key_sets = [set(df["key"].dropna()) for df in trial_dfs.values()]
-    common_keys = set.intersection(*key_sets) if key_sets else set()
+    out = out.sort_values("RT", kind="mergesort").reset_index(drop=True)
 
-    rows = []
+# Area% + AVG + CUMULATIVE 계산 (sum=0 / 빈 out 방어)
+for t in trial_dfs:
+    area_col = f"{t} Area"
+    pct_col = f"{t} Area %"
 
-    # 2) 공통 key가 없으면: 빈 rows라도 스키마를 강제로 만들어서 RT KeyError 방지
-    if not common_keys:
-        st.info("No common compounds across all trials.")
-        out = pd.DataFrame(columns=["RT", "Name", "Formula", "Species"])
+    if area_col in out.columns and not out.empty:
+        denom = pd.to_numeric(out[area_col], errors="coerce").sum()
+        if denom and denom != 0:
+            out[pct_col] = pd.to_numeric(out[area_col], errors="coerce") / denom * 100
+        else:
+            out[pct_col] = np.nan
     else:
-        for k in sorted(common_keys):
-            # 3) 각 trial에서 해당 key의 첫 row 뽑기
-            per = {}
-            missing = False
-            for t, df in trial_dfs.items():
-                m = df.loc[df["key"] == k]
-                if m.empty:
-                    missing = True
-                    break
-                per[t] = m.iloc[0]
+        out[pct_col] = np.nan
 
-            if missing:
-                continue
+area_pct_cols = [f"{t} Area %" for t in trial_dfs]
+if not out.empty:
+    out["AVG AREA"] = pd.to_numeric(out[area_pct_cols], errors="coerce").mean(axis=1)
+    out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
+else:
+    out["AVG AREA"] = pd.Series(dtype=float)
+    out["CUMULATIVE %"] = pd.Series(dtype=float)
 
-            # 4) RT 평균 (NaN 방어)
-            rt_list = [per[t]["RT"] for t in per]
-            rt_list = [x for x in rt_list if pd.notna(x)]
-            rt_mean = float(np.mean(rt_list)) if rt_list else np.nan
+final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
+for t in trial_dfs:
+    final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
-            base = per[next(iter(per))]
-            row = {
-                "RT": rt_mean,
-                "Name": base.get("Name", ""),
-                "Formula": base.get("Formula", ""),
-                "Species": base.get("Species", ""),
-            }
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+st.subheader("📊 Final Output Table")
+st.caption("Compounds common to all trials.")
 
-            for t in per:
-                row[f"{t} RT"] = per[t].get("RT", np.nan)
-                row[f"{t} Area"] = per[t].get("Area", np.nan)
-                row[f"{t} Score"] = per[t].get("Score", np.nan)
-
-            rows.append(row)
-
-        out = pd.DataFrame(rows)
-
-        # 5) 정렬은 RT 컬럼이 있을 때만
-        if "RT" in out.columns and not out.empty:
-            out = out.sort_values("RT", kind="mergesort").reset_index(drop=True)
+if out.empty:
+    st.info("No common compounds across all trials.")
+else:
+    st.dataframe(out[final_cols], use_container_width=True)
 
 # ---------- Copy Final Output Table (toggle) ----------
 if "show_copy" not in st.session_state:
     st.session_state.show_copy = False
 
 col1, col2 = st.columns([1, 6])
-
 with col1:
     if st.button("📋 Copy"):
         st.session_state.show_copy = not st.session_state.show_copy
 
 if st.session_state.show_copy:
-    tsv_text = out[final_cols].to_csv(sep="\t", index=False)
-
-    st.text_area(
-        "Copy & paste (TSV, header included):",
-        tsv_text,
-        height=180
-    )
+    if out.empty:
+        st.info("Nothing to copy (final table is empty).")
+    else:
+        tsv_text = out[final_cols].to_csv(sep="\t", index=False)
+        st.text_area("Copy & paste (TSV, header included):", tsv_text, height=180)
 
 # =====================================================
 # Top 10 (after Final Output)
@@ -304,16 +326,23 @@ if st.session_state.show_copy:
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("✨ Top 10 Compounds")
 st.caption("Top contributors based on average area percentage.")
-top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name","Formula","AVG AREA"]]
-st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
-st.markdown("</div>", unsafe_allow_html=True)
 
+if out.empty or "AVG AREA" not in out.columns:
+    st.info("Top 10 not available (final table is empty).")
+else:
+    top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name", "Formula", "AVG AREA"]]
+    st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
+
+st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # Validation (quiet)
 # =====================================================
 with st.expander("Validation (Area % sums)", expanded=False):
-    cols = st.columns(n_trials + 1)
-    for i, t in enumerate(trial_dfs):
-        cols[i].caption(f"{t}: {out[f'{t} Area %'].sum():.2f}%")
-    cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum():.2f}%")
+    if out.empty:
+        st.info("No data to validate.")
+    else:
+        cols = st.columns(n_trials + 1)
+        for i, t in enumerate(trial_dfs):
+            cols[i].caption(f"{t}: {out[f'{t} Area %'].sum(skipna=True):.2f}%")
+        cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum(skipna=True):.2f}%")
