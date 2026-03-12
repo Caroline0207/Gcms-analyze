@@ -265,7 +265,14 @@ st.dataframe(
     out[final_cols],
     use_container_width=True,
 )
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+st.subheader("🧩 Non-common Compound Summary")
 
+st.dataframe(
+    non_common_summary,
+    use_container_width=True,
+    hide_index=True
+)
 # ---------- Copy Final Output Table (toggle) ----------
 if "show_copy" not in st.session_state:
     st.session_state.show_copy = False
@@ -284,7 +291,29 @@ if st.session_state.show_copy:
         tsv_text,
         height=180
     )
+# ---------- Non-common compound summary ----------
+summary_rows = []
 
+for t, df in trial_dfs.items():
+    total_area = df["Area"].sum()
+
+    common_area = df.loc[df["key"].isin(common_keys), "Area"].sum()
+
+    non_common_area = total_area - common_area
+
+    common_pct_total = (common_area / total_area * 100) if total_area > 0 else np.nan
+    non_common_pct_total = (non_common_area / total_area * 100) if total_area > 0 else np.nan
+
+    summary_rows.append({
+        "Trial": t,
+        "Total Area": total_area,
+        "Common Area": common_area,
+        "Common % of Total": common_pct_total,
+        "Non-common Area": non_common_area,
+        "Non-common % of Total": non_common_pct_total
+    })
+
+non_common_summary = pd.DataFrame(summary_rows)
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
