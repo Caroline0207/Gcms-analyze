@@ -224,6 +224,27 @@ st.markdown("</div>", unsafe_allow_html=True)
 # =====================================================
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
 
+# ---------- Non-common compound summary ----------
+summary_rows = []
+for t, df in trial_dfs.items():
+    total_area = df["Area"].sum()
+    common_area = df.loc[df["key"].isin(common_keys), "Area"].sum()
+    non_common_area = total_area - common_area
+
+    common_pct_total = (common_area / total_area * 100) if total_area > 0 else np.nan
+    non_common_pct_total = (non_common_area / total_area * 100) if total_area > 0 else np.nan
+
+    summary_rows.append({
+        "Trial": t,
+        "Total Area": total_area,
+        "Common Area": common_area,
+        "Common % of Total": common_pct_total,
+        "Non-common Area": non_common_area,
+        "Non-common % of Total": non_common_pct_total
+    })
+
+non_common_summary = pd.DataFrame(summary_rows)
+
 rows = []
 for k in sorted(common_keys):
     per = {t: trial_dfs[t].loc[trial_dfs[t]["key"] == k].iloc[0] for t in trial_dfs}
@@ -265,8 +286,10 @@ st.dataframe(
     out[final_cols],
     use_container_width=True,
 )
+
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("🧩 Non-common Compound Summary")
+st.caption("Compounds not shared by all trials, shown as percentage of each trial's total area.")
 
 st.dataframe(
     non_common_summary,
