@@ -289,6 +289,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # =====================================================
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
 
+
 # ---------- Non-common compound summary ----------
 summary_rows = []
 for t, df in trial_dfs.items():
@@ -341,6 +342,7 @@ for k in sorted(common_keys):
     rows.append(row)
 
 out = pd.DataFrame(rows)
+final_cols = []
 
 if out.empty:
     st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
@@ -362,7 +364,7 @@ else:
     out["C Fraction"] = out["Formula"].apply(carbon_fraction)
     out["Organic Carbon %"] = out["C Fraction"] * 100
 
-    final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
+    final_cols = ["RT", "Name", "Formula", "Species", "Organic Carbon %", "AVG AREA", "CUMULATIVE %"]
     for t in trial_dfs:
         final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
@@ -395,36 +397,15 @@ with col1:
         st.session_state.show_copy = not st.session_state.show_copy
 
 if st.session_state.show_copy:
-    tsv_text = out[final_cols].to_csv(sep="\t", index=False)
-
-    st.text_area(
-        "Copy & paste (TSV, header included):",
-        tsv_text,
-        height=180
-    )
-# ---------- Non-common compound summary ----------
-summary_rows = []
-
-for t, df in trial_dfs.items():
-    total_area = df["Area"].sum()
-
-    common_area = df.loc[df["key"].isin(common_keys), "Area"].sum()
-
-    non_common_area = total_area - common_area
-
-    common_pct_total = (common_area / total_area * 100) if total_area > 0 else np.nan
-    non_common_pct_total = (non_common_area / total_area * 100) if total_area > 0 else np.nan
-
-    summary_rows.append({
-        "Trial": t,
-        "Total Area": total_area,
-        "Common Area": common_area,
-        "Common % of Total": common_pct_total,
-        "Non-common Area": non_common_area,
-        "Non-common % of Total": non_common_pct_total
-    })
-
-non_common_summary = pd.DataFrame(summary_rows)
+    if out.empty or not final_cols:
+        st.info("No final output table available to copy.")
+    else:
+        tsv_text = out[final_cols].to_csv(sep="\t", index=False)
+        st.text_area(
+            "Copy & paste (TSV, header included):",
+            tsv_text,
+            height=180
+        )
 # =====================================================
 # TOC-based Compound Concentration Estimation
 # =====================================================
@@ -432,79 +413,94 @@ st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("🧪 TOC-based Compound Concentration")
 st.caption("Estimate each compound concentration from TOC (ppm = mg C/L), AVG AREA, and formula-based carbon fraction.")
 
-toc_value = st.number_input(
-    "Enter TOC value (ppm = mg C/L)",
-    min_value=0.0,
-    value=12.4,
-    step=0.1
-)
-
-toc_df = out.copy()
-
-# Convert AVG AREA % to fraction
-toc_df["Area Fraction"] = toc_df["AVG AREA"] / 100
-out["C Fraction"] = out["Formula"].apply(carbon_fraction)
-# Weight term = relative abundance × carbon fraction
-toc_df["Weighted C Term"] = toc_df["Area Fraction"] * toc_df["C Fraction"]
-
-denom = toc_df["Weighted C Term"].sum()
-
-if denom > 0:
-    # Estimated compound concentration (mg/L)
-    toc_df["Estimated Compound Conc. (mg/L)"] = toc_value * toc_df["Area Fraction"] / denom
-
-    # Estimated carbon concentration contributed by each compound
-    toc_df["Estimated Carbon Conc. (mg C/L)"] = (
-        toc_df["Estimated Compound Conc. (mg/L)"] * toc_df["C Fraction"]
-    )
-
-    display_cols = [
-        "Name",
-        "Formula",
-        "AVG AREA",
-        "Organic Carbon %",
-        "Estimated Compound Conc. (mg/L)",
-        "Estimated Carbon Conc. (mg C/L)"
-    ]
-
-    st.dataframe(
-        toc_df[display_cols].sort_values("Estimated Compound Conc. (mg/L)", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-        height=380
-    )
-
-    st.caption(
-        f"Check: Estimated carbon sum = {toc_df['Estimated Carbon Conc. (mg C/L)'].sum():.3f} mg C/L "
-        f"(target TOC = {toc_value:.3f} mg C/L)"
-    )
-
-    # Copy block
-    if "show_toc_copy" not in st.session_state:
-        st.session_state.show_toc_copy = False
-
-    c1, c2 = st.columns([1, 6])
-    with c1:
-        if st.button("📋 Copy TOC Table"):
-            st.session_state.show_toc_copy = not st.session_state.show_toc_copy
-
-    if st.session_state.show_toc_copy:
-        toc_tsv = toc_df[display_cols].to_csv(sep="\t", index=False)
-        st.text_area(
-            "Copy & paste TOC result table (TSV, header included):",
-            toc_tsv,
-            height=180
-        )
+if out.empty or "AVG AREA" not in out.columns:
+    st.info("TOC calculation is unavailable because there are no compounds common to all trials.")
 else:
-    st.warning("Could not calculate concentrations. Check whether valid formulas are present.")
+    toc_value = st.number_input(
+        "Enter TOC value (ppm = mg C/L)",
+        min_value=0.0,
+        value=12.4,
+        step=0.1
+    )
+
+    toc_df = out.copy()
+    toc_df["C Fraction"] = toc_df["Formula"].apply(carbon_fraction)
+    toc_df["Organic Carbon %"] = toc_df["C Fraction"] * 100
+    toc_df["Area Fraction"] = toc_df["AVG AREA"] / 100
+
+    # remove rows with invalid formula interpretation
+    toc_df = toc_df.dropna(subset=["C Fraction"]).copy()
+
+    if toc_df.empty:
+        st.warning("Could not calculate concentrations because no valid molecular formulas were available.")
+    else:
+        toc_df["Weighted C Term"] = toc_df["Area Fraction"] * toc_df["C Fraction"]
+        denom = toc_df["Weighted C Term"].sum()
+
+        if denom > 0:
+            toc_df["Estimated Compound Conc. (mg/L)"] = (
+                toc_value * toc_df["Area Fraction"] / denom
+            )
+
+            toc_df["Estimated Carbon Conc. (mg C/L)"] = (
+                toc_df["Estimated Compound Conc. (mg/L)"] * toc_df["C Fraction"]
+            )
+
+            display_cols = [
+                "Name",
+                "Formula",
+                "AVG AREA",
+                "Organic Carbon %",
+                "Estimated Compound Conc. (mg/L)",
+                "Estimated Carbon Conc. (mg C/L)"
+            ]
+
+            st.dataframe(
+                toc_df[display_cols].sort_values(
+                    "Estimated Compound Conc. (mg/L)", ascending=False
+                ),
+                use_container_width=True,
+                hide_index=True,
+                height=380
+            )
+
+            st.caption(
+                f"Check: Estimated carbon sum = "
+                f"{toc_df['Estimated Carbon Conc. (mg C/L)'].sum():.3f} mg C/L "
+                f"(target TOC = {toc_value:.3f} mg C/L)"
+            )
+
+            if "show_toc_copy" not in st.session_state:
+                st.session_state.show_toc_copy = False
+
+            c1, c2 = st.columns([1, 6])
+            with c1:
+                if st.button("📋 Copy TOC Table"):
+                    st.session_state.show_toc_copy = not st.session_state.show_toc_copy
+
+            if st.session_state.show_toc_copy:
+                toc_tsv = toc_df[display_cols].to_csv(sep="\t", index=False)
+                st.text_area(
+                    "Copy & paste TOC result table (TSV, header included):",
+                    toc_tsv,
+                    height=180
+                )
+        else:
+            st.warning("Could not calculate concentrations. Check AVG AREA values and molecular formulas.")
+
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("✨ Top 10 Compounds")
 st.caption("Top contributors based on average area percentage.")
-top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name","Formula","AVG AREA"]]
-st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
+
+if out.empty or "AVG AREA" not in out.columns:
+    st.info("No Top 10 table available.")
+else:
+    top10 = out.sort_values("AVG AREA", ascending=False).head(10)[["Name", "Formula", "AVG AREA"]]
+    st.dataframe(top10, use_container_width=True, hide_index=True, height=260)
+
 st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -512,7 +508,10 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Validation (quiet)
 # =====================================================
 with st.expander("Validation (Area % sums)", expanded=False):
-    cols = st.columns(n_trials + 1)
-    for i, t in enumerate(trial_dfs):
-        cols[i].caption(f"{t}: {out[f'{t} Area %'].sum():.2f}%")
-    cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum():.2f}%")
+    if out.empty or "AVG AREA" not in out.columns:
+        st.info("Validation unavailable because no common compounds were found.")
+    else:
+        cols = st.columns(n_trials + 1)
+        for i, t in enumerate(trial_dfs):
+            cols[i].caption(f"{t}: {out[f'{t} Area %'].sum():.2f}%")
+        cols[-1].caption(f"AVG AREA: {out['AVG AREA'].sum():.2f}%")
