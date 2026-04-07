@@ -359,6 +359,8 @@ else:
     area_pct_cols = [f"{t} Area %" for t in trial_dfs]
     out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
     out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
+    out["C Fraction"] = out["Formula"].apply(carbon_fraction)
+    out["Organic Carbon %"] = out["C Fraction"] * 100
 
     final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
     for t in trial_dfs:
@@ -441,7 +443,7 @@ toc_df = out.copy()
 
 # Convert AVG AREA % to fraction
 toc_df["Area Fraction"] = toc_df["AVG AREA"] / 100
-
+out["C Fraction"] = out["Formula"].apply(carbon_fraction)
 # Weight term = relative abundance × carbon fraction
 toc_df["Weighted C Term"] = toc_df["Area Fraction"] * toc_df["C Fraction"]
 
