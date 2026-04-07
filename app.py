@@ -288,11 +288,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Final Output Table (common to ALL trials)
 # =====================================================
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
-out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
-out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
-# Carbon fraction from formula
-out["C Fraction"] = out["Formula"].apply(carbon_fraction)
-out["Organic Carbon %"] = out["C Fraction"] * 100
+
 # ---------- Non-common compound summary ----------
 summary_rows = []
 for t, df in trial_dfs.items():
@@ -314,9 +310,19 @@ for t, df in trial_dfs.items():
 
 non_common_summary = pd.DataFrame(summary_rows)
 
+# ---------- Build final common-compound table ----------
 rows = []
 for k in sorted(common_keys):
-    per = {t: trial_dfs[t].loc[trial_dfs[t]["key"] == k].iloc[0] for t in trial_dfs}
+    per = {}
+    for t in trial_dfs:
+        match = trial_dfs[t].loc[trial_dfs[t]["key"] == k]
+        if not match.empty:
+            per[t] = match.iloc[0]
+
+    # safety check: must exist in all trials
+    if len(per) != len(trial_dfs):
+        continue
+
     rt_mean = np.mean([per[t]["RT"] for t in per])
 
     base = per[list(per.keys())[0]]
@@ -334,27 +340,38 @@ for k in sorted(common_keys):
 
     rows.append(row)
 
-out = pd.DataFrame(rows).sort_values("RT").reset_index(drop=True)
+out = pd.DataFrame(rows)
 
-for t in trial_dfs:
-    out[f"{t} Area %"] = out[f"{t} Area"] / out[f"{t} Area"].sum() * 100
+if out.empty:
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    st.subheader("📊 Final Output Table")
+    st.warning("No compounds were common to all trials.")
+else:
+    out = out.sort_values("RT").reset_index(drop=True)
 
-area_pct_cols = [f"{t} Area %" for t in trial_dfs]
-out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
-out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
+    for t in trial_dfs:
+        trial_total_area = out[f"{t} Area"].sum()
+        out[f"{t} Area %"] = (
+            out[f"{t} Area"] / trial_total_area * 100
+            if trial_total_area > 0 else np.nan
+        )
 
-final_cols = ["RT", "Name", "Formula", "Species", "Organic Carbon %", "AVG AREA", "CUMULATIVE %"]
-for t in trial_dfs:
-    final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
+    area_pct_cols = [f"{t} Area %" for t in trial_dfs]
+    out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
+    out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-st.subheader("📊 Final Output Table")
-st.caption("Compounds common to all trials.")
+    final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
+    for t in trial_dfs:
+        final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
-st.dataframe(
-    out[final_cols],
-    use_container_width=True,
-)
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    st.subheader("📊 Final Output Table")
+    st.caption("Compounds common to all trials.")
+
+    st.dataframe(
+        out[final_cols],
+        use_container_width=True,
+    )
 
 st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 st.subheader("🧩 Non-common Compound Summary")
