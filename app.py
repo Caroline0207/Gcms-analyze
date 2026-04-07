@@ -143,7 +143,72 @@ def parse_trial(text):
     df = df[df["key"] != ""].copy()
     df = df[df["Area"] > 0].copy()
     return df
+ATOMIC_WEIGHTS = {
+    "H": 1.008,
+    "C": 12.011,
+    "N": 14.007,
+    "O": 15.999,
+    "S": 32.06,
+    "P": 30.974,
+    "F": 18.998,
+    "Cl": 35.45,
+    "Br": 79.904,
+    "I": 126.904,
+    "Si": 28.085
+}
 
+def parse_formula_counts(formula):
+    """
+    Parse simple molecular formulas like C10H18O, C12H22O11, C7H8O2.
+    Returns dict of element counts.
+    """
+    if formula is None or pd.isna(formula):
+        return {}
+
+    formula = str(formula).strip()
+    if formula == "":
+        return {}
+
+    tokens = re.findall(r"([A-Z][a-z]?)(\d*)", formula)
+    if not tokens:
+        return {}
+
+    counts = {}
+    for elem, num in tokens:
+        count = int(num) if num else 1
+        counts[elem] = counts.get(elem, 0) + count
+    return counts
+
+def molecular_weight(formula):
+    counts = parse_formula_counts(formula)
+    if not counts:
+        return np.nan
+
+    mw = 0.0
+    for elem, count in counts.items():
+        if elem not in ATOMIC_WEIGHTS:
+            return np.nan
+        mw += ATOMIC_WEIGHTS[elem] * count
+    return mw
+
+def carbon_fraction(formula):
+    """
+    Returns carbon mass fraction in the compound:
+    (mass of carbon in molecule) / (molecular weight)
+    """
+    counts = parse_formula_counts(formula)
+    if not counts:
+        return np.nan
+
+    if "C" not in counts or counts["C"] == 0:
+        return 0.0
+
+    mw = molecular_weight(formula)
+    if pd.isna(mw) or mw == 0:
+        return np.nan
+
+    carbon_mass = counts["C"] * ATOMIC_WEIGHTS["C"]
+    return carbon_mass / mw
 # =====================================================
 # Trial input
 # =====================================================
@@ -223,7 +288,11 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Final Output Table (common to ALL trials)
 # =====================================================
 common_keys = set.intersection(*[set(df["key"]) for df in trial_dfs.values()])
-
+out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
+out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
+# Carbon fraction from formula
+out["C Fraction"] = out["Formula"].apply(carbon_fraction)
+out["Organic Carbon %"] = out["C Fraction"] * 100
 # ---------- Non-common compound summary ----------
 summary_rows = []
 for t, df in trial_dfs.items():
@@ -274,7 +343,7 @@ area_pct_cols = [f"{t} Area %" for t in trial_dfs]
 out["AVG AREA"] = out[area_pct_cols].mean(axis=1)
 out["CUMULATIVE %"] = out["AVG AREA"].cumsum()
 
-final_cols = ["RT", "Name", "Formula", "Species", "AVG AREA", "CUMULATIVE %"]
+final_cols = ["RT", "Name", "Formula", "Species", "Organic Carbon %", "AVG AREA", "CUMULATIVE %"]
 for t in trial_dfs:
     final_cols += [f"{t} RT", f"{t} Area", f"{t} Area %", f"{t} Score"]
 
@@ -337,6 +406,78 @@ for t, df in trial_dfs.items():
     })
 
 non_common_summary = pd.DataFrame(summary_rows)
+# =====================================================
+# TOC-based Compound Concentration Estimation
+# =====================================================
+st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+st.subheader("🧪 TOC-based Compound Concentration")
+st.caption("Estimate each compound concentration from TOC (ppm = mg C/L), AVG AREA, and formula-based carbon fraction.")
+
+toc_value = st.number_input(
+    "Enter TOC value (ppm = mg C/L)",
+    min_value=0.0,
+    value=12.4,
+    step=0.1
+)
+
+toc_df = out.copy()
+
+# Convert AVG AREA % to fraction
+toc_df["Area Fraction"] = toc_df["AVG AREA"] / 100
+
+# Weight term = relative abundance × carbon fraction
+toc_df["Weighted C Term"] = toc_df["Area Fraction"] * toc_df["C Fraction"]
+
+denom = toc_df["Weighted C Term"].sum()
+
+if denom > 0:
+    # Estimated compound concentration (mg/L)
+    toc_df["Estimated Compound Conc. (mg/L)"] = toc_value * toc_df["Area Fraction"] / denom
+
+    # Estimated carbon concentration contributed by each compound
+    toc_df["Estimated Carbon Conc. (mg C/L)"] = (
+        toc_df["Estimated Compound Conc. (mg/L)"] * toc_df["C Fraction"]
+    )
+
+    display_cols = [
+        "Name",
+        "Formula",
+        "AVG AREA",
+        "Organic Carbon %",
+        "Estimated Compound Conc. (mg/L)",
+        "Estimated Carbon Conc. (mg C/L)"
+    ]
+
+    st.dataframe(
+        toc_df[display_cols].sort_values("Estimated Compound Conc. (mg/L)", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+        height=380
+    )
+
+    st.caption(
+        f"Check: Estimated carbon sum = {toc_df['Estimated Carbon Conc. (mg C/L)'].sum():.3f} mg C/L "
+        f"(target TOC = {toc_value:.3f} mg C/L)"
+    )
+
+    # Copy block
+    if "show_toc_copy" not in st.session_state:
+        st.session_state.show_toc_copy = False
+
+    c1, c2 = st.columns([1, 6])
+    with c1:
+        if st.button("📋 Copy TOC Table"):
+            st.session_state.show_toc_copy = not st.session_state.show_toc_copy
+
+    if st.session_state.show_toc_copy:
+        toc_tsv = toc_df[display_cols].to_csv(sep="\t", index=False)
+        st.text_area(
+            "Copy & paste TOC result table (TSV, header included):",
+            toc_tsv,
+            height=180
+        )
+else:
+    st.warning("Could not calculate concentrations. Check whether valid formulas are present.")
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
