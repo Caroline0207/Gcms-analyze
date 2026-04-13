@@ -482,15 +482,15 @@ else:
                 "% of Total TOC"
             ]
           toc_df["Molecular Weight"] = toc_df["Molecular Weight"].round(2)
-      toc_df["AVG AREA"] = toc_df["AVG AREA"].round(2)
-toc_df["Area Fraction"] = toc_df["Area Fraction"].round(4)
-toc_df["C Fraction"] = toc_df["C Fraction"].round(4)
-toc_df["Organic Carbon %"] = toc_df["Organic Carbon %"].round(2)
-toc_df["Weighted C Term"] = toc_df["Weighted C Term"].round(4)
-toc_df["Estimated Compound Conc. (mg/L)"] = toc_df["Estimated Compound Conc. (mg/L)"].round(3)
-toc_df["Estimated Carbon Conc. (mg C/L)"] = toc_df["Estimated Carbon Conc. (mg C/L)"].round(3)
-toc_df["% of Total TOC"] = toc_df["% of Total TOC"].round(2)
-toc_df["RT"] = toc_df["RT"].round(3)
+          toc_df["AVG AREA"] = toc_df["AVG AREA"].round(2)
+          toc_df["Area Fraction"] = toc_df["Area Fraction"].round(4)
+          toc_df["C Fraction"] = toc_df["C Fraction"].round(4)
+          toc_df["Organic Carbon %"] = toc_df["Organic Carbon %"].round(2)
+          toc_df["Weighted C Term"] = toc_df["Weighted C Term"].round(4)
+          toc_df["Estimated Compound Conc. (mg/L)"] = toc_df["Estimated Compound Conc. (mg/L)"].round(3)
+          toc_df["Estimated Carbon Conc. (mg C/L)"] = toc_df["Estimated Carbon Conc. (mg C/L)"].round(3)  
+          toc_df["% of Total TOC"] = toc_df["% of Total TOC"].round(2)
+          toc_df["RT"] = toc_df["RT"].round(3)
 
             st.dataframe(
                 toc_df[display_cols],
