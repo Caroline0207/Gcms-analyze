@@ -426,6 +426,10 @@ else:
     toc_df = out.copy()
     toc_df["C Fraction"] = toc_df["Formula"].apply(carbon_fraction)
     toc_df["Organic Carbon %"] = toc_df["C Fraction"] * 100
+    toc_df["Molecular Weight"] = toc_df["Formula"].apply(molecular_weight)
+    toc_df["Carbon Count"] = toc_df["Formula"].apply(
+        lambda f: parse_formula_counts(f).get("C", np.nan) if pd.notna(f) and str(f).strip() else np.nan
+    )
     toc_df["Area Fraction"] = toc_df["AVG AREA"] / 100
 
     # remove rows with invalid formula interpretation
@@ -446,22 +450,43 @@ else:
                 toc_df["Estimated Compound Conc. (mg/L)"] * toc_df["C Fraction"]
             )
 
+            toc_df["% of Total TOC"] = (
+                toc_df["Estimated Carbon Conc. (mg C/L)"] / toc_value * 100
+            )
+
+            toc_df["Rank"] = (
+                toc_df["Estimated Compound Conc. (mg/L)"]
+                .rank(method="dense", ascending=False)
+                .astype(int)
+            )
+
+            toc_df = toc_df.sort_values(
+                "Estimated Compound Conc. (mg/L)", ascending=False
+            ).reset_index(drop=True)
+
             display_cols = [
+                "Rank",
+                "RT",
                 "Name",
+                "Species",
                 "Formula",
+                "Carbon Count",
+                "Molecular Weight",
                 "AVG AREA",
+                "Area Fraction",
+                "C Fraction",
                 "Organic Carbon %",
+                "Weighted C Term",
                 "Estimated Compound Conc. (mg/L)",
-                "Estimated Carbon Conc. (mg C/L)"
+                "Estimated Carbon Conc. (mg C/L)",
+                "% of Total TOC"
             ]
 
             st.dataframe(
-                toc_df[display_cols].sort_values(
-                    "Estimated Compound Conc. (mg/L)", ascending=False
-                ),
+                toc_df[display_cols],
                 use_container_width=True,
                 hide_index=True,
-                height=380
+                height=420
             )
 
             st.caption(
@@ -487,7 +512,6 @@ else:
                 )
         else:
             st.warning("Could not calculate concentrations. Check AVG AREA values and molecular formulas.")
-
 # =====================================================
 # Top 10 (after Final Output)
 # =====================================================
